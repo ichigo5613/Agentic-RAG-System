@@ -1,17 +1,35 @@
-# backend/app.py
+# backend/app.py - COMPLETE FIXED VERSION
+import sys
+import os
+
+# Fix import path for both running from project root and backend directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+parent_dir = os.path.dirname(current_dir)
+
+# Add both current and parent directories to path
+sys.path.insert(0, current_dir)
+sys.path.insert(0, parent_dir)
+
+# Now import
+try:
+    from backend.config import config
+    from backend.core.document_processor import AdvancedDocumentProcessor
+    from backend.core.rag_engine import RAGEngine
+    from backend.utils.logger import logger
+    from backend.utils.error_handler import handle_exception, validate_request
+except ImportError as e:
+    print(f"Import error: {e}")
+    print(f"Current directory: {current_dir}")
+    print(f"Parent directory: {parent_dir}")
+    print(f"Python path: {sys.path}")
+    raise
+
 from flask import Flask, request, jsonify, send_file
 from flask_cors import CORS
-import os
 import time
 import uuid
 from werkzeug.utils import secure_filename
-from typing import Dict, Any
-
-from backend.config import config
-from backend.core.document_processor import AdvancedDocumentProcessor
-from backend.core.rag_engine import RAGEngine
-from backend.utils.logger import logger
-from backend.utils.error_handler import handle_exception, validate_request
+from typing import List, Dict, Any
 
 # Initialize Flask app
 app = Flask(__name__)
@@ -86,6 +104,7 @@ def health_check():
             "error": str(e)[:100]
         }), 500
 
+# backend/app.py - UPDATED UPLOAD SECTION
 @app.route('/upload', methods=['POST'])
 def upload_document():
     """Upload and process document"""
@@ -102,6 +121,19 @@ def upload_document():
             "error": f"File type not allowed. Supported: {list(config.ALLOWED_EXTENSIONS)}"
         }), 400
     
+    # Check file size before processing
+    file.seek(0, os.SEEK_END)
+    file_size = file.tell()
+    file.seek(0)  # Reset file pointer
+    
+    # Limit PDF size to 50MB to prevent timeout
+    MAX_PDF_SIZE = 50 * 1024 * 1024  # 50MB
+    if file.filename.lower().endswith('.pdf') and file_size > MAX_PDF_SIZE:
+        return jsonify({
+            "error": f"PDF file too large. Maximum size is 50MB. Your file is {file_size/(1024*1024):.1f}MB",
+            "max_size_mb": 50
+        }), 400
+    
     try:
         # Save file
         filename = secure_filename(file.filename)
@@ -110,8 +142,14 @@ def upload_document():
         
         logger.info(f"Processing uploaded file: {filename}")
         
-        # Process document
-        chunks, metadata = doc_processor.process_document(filepath, filename)
+        # FOR LARGE PDFS: Use incremental processing
+        if filename.lower().endswith('.pdf') and file_size > 10 * 1024 * 1024:  # >10MB
+            # Process only first 100 pages for large PDFs
+            logger.info(f"Large PDF detected, using incremental processing")
+            chunks, metadata = _process_large_pdf_incrementally(filepath, filename)
+        else:
+            # Normal processing
+            chunks, metadata = doc_processor.process_document(filepath, filename)
         
         # Add to vector store
         chunk_ids = rag_engine.vector_store.add_documents(chunks, metadata)
@@ -138,6 +176,44 @@ def upload_document():
         return jsonify({
             "error": f"Document processing failed: {str(e)[:200]}"
         }), 500
+
+def _process_large_pdf_incrementally(filepath: str, filename: str):
+    """Process large PDF in chunks to avoid timeout"""
+    try:
+        from PyPDF2 import PdfReader
+        import tempfile
+        
+        # Create a temporary copy with only first 50 pages
+        reader = PdfReader(filepath)
+        
+        if len(reader.pages) > 50:
+            logger.info(f"Large PDF with {len(reader.pages)} pages, processing first 50 pages only")
+            
+            # Create temp file with first 50 pages
+            from PyPDF2 import PdfWriter
+            writer = PdfWriter()
+            
+            for i in range(min(50, len(reader.pages))):
+                writer.add_page(reader.pages[i])
+            
+            temp_path = os.path.join(tempfile.gettempdir(), f"temp_{filename}")
+            with open(temp_path, 'wb') as temp_file:
+                writer.write(temp_file)
+            
+            # Process the smaller file
+            chunks, metadata = doc_processor.process_document(temp_path, f"{filename} (first 50 pages)")
+            
+            # Clean up temp file
+            os.remove(temp_path)
+            
+            return chunks, metadata
+        
+        # If <= 50 pages, process normally
+        return doc_processor.process_document(filepath, filename)
+        
+    except Exception as e:
+        logger.error(f"Incremental PDF processing failed: {str(e)}")
+        raise
 
 @app.route('/query', methods=['POST'])
 @validate_request(['query'])
@@ -350,15 +426,14 @@ def test_endpoint():
         }), 400
 
 if __name__ == '__main__':
-    logger.info(f"🌐 Starting Flask server on http://localhost:5000")
+    logger.info(f"🌐 Starting Flask server on http://127.0.0.1:5000")
     logger.info(f"🤖 Using Ollama model: {config.OLLAMA_MODEL}")
-    logger.info(f"🔧 Embedding model: {config.EMBEDDING_MODEL}")
-    logger.info(f"🗄️ ChromaDB collection: {config.COLLECTION_NAME}")
-    logger.info(f"📁 Upload folder: {config.UPLOAD_FOLDER}")
     
+    # Turn off debug mode to avoid socket errors
     app.run(
-        debug=config.DEBUG,
-        host='0.0.0.0',
+        debug=False,
+        host='127.0.0.1',
         port=5000,
-        threaded=True
+        threaded=True,
+        use_reloader=False
     )

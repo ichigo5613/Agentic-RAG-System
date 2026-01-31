@@ -1,5 +1,5 @@
 # backend/core/cache_manager.py
-from typing import Any, Optional
+from typing import Any, Optional, List
 import time
 from collections import OrderedDict
 

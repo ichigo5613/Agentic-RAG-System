@@ -1,7 +1,7 @@
-# backend/config.py
+# backend/config.py - FIXED VERSION
 import os
-from dataclasses import dataclass
-from typing import List, Optional
+from dataclasses import dataclass, field
+from typing import List, Optional, Set
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -15,7 +15,7 @@ class Config:
     
     # Ollama Settings
     OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "phi3:mini")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "gemma2:2b")
     OLLAMA_TIMEOUT: int = 120
     OLLAMA_TEMPERATURE: float = 0.1
     OLLAMA_MAX_TOKENS: int = 2000
@@ -29,7 +29,8 @@ class Config:
     
     # File Upload Settings
     UPLOAD_FOLDER: str = "./storage/uploads"
-    ALLOWED_EXTENSIONS: set = {'pdf', 'docx', 'txt', 'xlsx', 'xls', 'pptx', 'md'}
+    # FIXED: Using default_factory for mutable set
+    ALLOWED_EXTENSIONS: Set[str] = field(default_factory=lambda: {'pdf', 'docx', 'txt', 'xlsx', 'xls', 'pptx', 'md'})
     
     # RAG Settings
     CHUNK_SIZE: int = 1000

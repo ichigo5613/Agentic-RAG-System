@@ -1,5 +1,5 @@
 # backend/agents/retrieval_agent.py
-from typing import Dict, Any
+from typing import List, Dict, Any
 import time
 
 from backend.config import config

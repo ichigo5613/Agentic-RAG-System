@@ -16,7 +16,10 @@ st.set_page_config(
 )
 
 # Backend API URL
-BACKEND_URL = "http://localhost:5000"
+BACKEND_URL = "http://127.0.0.1:5000"
+
+# Define allowed extensions in frontend
+ALLOWED_EXTENSIONS = ['pdf', 'docx', 'txt', 'xlsx', 'xls', 'pptx', 'md']
 
 # Initialize session state
 if 'chat_history' not in st.session_state:
@@ -29,6 +32,12 @@ if 'show_thought_process' not in st.session_state:
     st.session_state.show_thought_process = True
 if 'api_status' not in st.session_state:
     st.session_state.api_status = "unknown"
+if 'backend_model' not in st.session_state:
+    st.session_state.backend_model = "Unknown"
+if 'backend_status' not in st.session_state:
+    st.session_state.backend_status = "unknown"
+if 'last_api_check' not in st.session_state:
+    st.session_state.last_api_check = 0
 
 # Custom CSS
 st.markdown("""
@@ -89,37 +98,126 @@ st.markdown("""
     .status-offline {
         background-color: #ef4444;
     }
+    .debug-output {
+        background-color: #1e1e1e;
+        color: #d4d4d4;
+        padding: 15px;
+        border-radius: 8px;
+        font-family: 'Courier New', monospace;
+        font-size: 0.9em;
+        white-space: pre-wrap;
+        margin: 10px 0;
+        border: 1px solid #333;
+    }
 </style>
 """, unsafe_allow_html=True)
 
 def check_api_status():
-    """Check if backend API is running"""
+    """Check if backend API is running - COMPLETE FIX with caching"""
+    # Store result in session state to avoid repeated calls
+    if 'last_api_check' in st.session_state:
+        elapsed = time.time() - st.session_state.last_api_check
+        if elapsed < 5:  # Cache for 5 seconds
+            return st.session_state.api_status == "online"
+    
     try:
-        response = requests.get(f"{BACKEND_URL}/health", timeout=3)
+        # Test the connection
+        response = requests.get(f"{BACKEND_URL}/health", timeout=10)
+        
         if response.status_code == 200:
+            data = response.json()
+            # Store model info in session state
+            st.session_state.backend_model = data.get('models', {}).get('ollama', 'Unknown')
+            st.session_state.backend_status = data.get('status', 'unknown')
             st.session_state.api_status = "online"
+            st.session_state.last_api_check = time.time()
             return True
         else:
             st.session_state.api_status = "offline"
+            st.session_state.last_api_check = time.time()
             return False
-    except:
+            
+    except requests.exceptions.ConnectionError:
         st.session_state.api_status = "offline"
+        st.session_state.last_api_check = time.time()
+        return False
+    except Exception as e:
+        # Log error but don't crash
+        print(f"Backend check error: {e}")
+        st.session_state.api_status = "offline"
+        st.session_state.last_api_check = time.time()
         return False
 
-def upload_file(file):
-    """Upload file to backend"""
+def debug_backend_connection():
+    """Debug backend connection issues"""
+    debug_output = []
+    debug_output.append("\n" + "="*60)
+    debug_output.append("🔍 Debugging Backend Connection")
+    debug_output.append("="*60)
+    
+    debug_output.append(f"Frontend BACKEND_URL: {BACKEND_URL}")
+    
     try:
+        debug_output.append(f"\n1. Testing {BACKEND_URL}/health ...")
+        response = requests.get(f"{BACKEND_URL}/health", timeout=5)
+        debug_output.append(f"   Status: {response.status_code}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            debug_output.append(f"✅ Backend is working!")
+            debug_output.append(f"   Status: {data.get('status')}")
+            debug_output.append(f"   Model: {data.get('models', {}).get('ollama')}")
+            debug_output.append(f"   LLM Connected: {data.get('components', {}).get('llm')}")
+            return True, "\n".join(debug_output)
+        else:
+            debug_output.append(f"❌ Unexpected status: {response.status_code}")
+            debug_output.append(f"   Response: {response.text[:200]}")
+            return False, "\n".join(debug_output)
+            
+    except requests.exceptions.ConnectionError as e:
+        debug_output.append(f"❌ Connection Error: {e}")
+        debug_output.append("\nPossible solutions:")
+        debug_output.append("1. Is backend running? Check with: python backend/app.py")
+        debug_output.append("2. Try different URL: http://localhost:5000 or http://127.0.0.1:5000")
+        debug_output.append("3. Check Windows Firewall")
+        return False, "\n".join(debug_output)
+    except Exception as e:
+        debug_output.append(f"❌ Error: {e}")
+        return False, "\n".join(debug_output)
+
+# frontend/app.py - UPDATE UPLOAD FUNCTION
+def upload_file(file):
+    """Upload file to backend with better timeout handling"""
+    try:
+        # Check file size first
+        file_size = len(file.getvalue())
+        MAX_SIZE = 50 * 1024 * 1024  # 50MB
+        
+        if file.name.lower().endswith('.pdf') and file_size > MAX_SIZE:
+            st.error(f"PDF file too large ({file_size/(1024*1024):.1f}MB). Maximum is 50MB.")
+            return None
+        
         files = {'file': (file.name, file.getvalue(), file.type)}
+        
+        # Adjust timeout based on file size
+        if file_size > 10 * 1024 * 1024:  # >10MB
+            timeout = 300  # 5 minutes for large files
+        else:
+            timeout = 120  # 2 minutes for smaller files
+        
         response = requests.post(
             f"{BACKEND_URL}/upload", 
             files=files, 
-            timeout=120
+            timeout=timeout
         )
         return response
+    except requests.exceptions.Timeout:
+        st.error(f"Upload timed out. The file might be too large. Try a smaller file.")
+        return None
     except Exception as e:
         st.error(f"Upload failed: {str(e)}")
         return None
-
+        
 def send_query(query, agent_mode=True):
     """Send query to backend"""
     endpoint = "/query" if agent_mode else "/quick_query"
@@ -171,6 +269,13 @@ def get_documents_list():
 with st.sidebar:
     st.title("🤖 Agentic RAG System")
     
+    # Debug button
+    if st.button("🐛 Debug Connection", type="secondary", use_container_width=True):
+        debug_success, debug_info = debug_backend_connection()
+        st.session_state.debug_info = debug_info
+        st.session_state.show_debug = True
+        st.rerun()
+    
     # API Status
     st.subheader("🔌 Connection Status")
     api_online = check_api_status()
@@ -181,7 +286,8 @@ with st.sidebar:
         st.markdown(f'<div class="status-indicator {status_class}"></div>', unsafe_allow_html=True)
     with col2:
         status_text = "✅ Online" if api_online else "❌ Offline"
-        st.write(f"**Backend:** {status_text}")
+        model_info = f" ({st.session_state.backend_model})" if api_online else ""
+        st.write(f"**Backend:** {status_text}{model_info}")
     
     if not api_online:
         st.warning("Backend is offline. Start it with: `python backend/app.py`")
@@ -262,7 +368,17 @@ with st.sidebar:
             
             llm_status = info.get("models", {}).get("llm", {}).get("status", "unknown")
             st.write(f"**LLM:** {llm_status}")
-            st.write(f"**Model:** {info.get('models', {}).get('llm', {}).get('model', 'N/A')}")
+            if info.get("models", {}).get("llm", {}).get("model"):
+                st.write(f"**Model:** {info['models']['llm']['model']}")
+    
+    # Debug Info (collapsible)
+    if hasattr(st.session_state, 'show_debug') and st.session_state.show_debug:
+        with st.expander("🔧 Debug Output", expanded=True):
+            st.markdown(f'<div class="debug-output">{st.session_state.debug_info}</div>', unsafe_allow_html=True)
+            if st.button("Clear Debug", use_container_width=True):
+                del st.session_state.debug_info
+                del st.session_state.show_debug
+                st.rerun()
 
 # Main Content
 st.title("🤖 Agentic RAG System")
@@ -467,9 +583,9 @@ with tab_upload:
         # File uploader
         uploaded_files = st.file_uploader(
             "Choose files to upload",
-            type=list(config.ALLOWED_EXTENSIONS),
+            type=ALLOWED_EXTENSIONS,
             accept_multiple_files=True,
-            help=f"Supported formats: {', '.join(config.ALLOWED_EXTENSIONS)}"
+            help=f"Supported formats: {', '.join(ALLOWED_EXTENSIONS)}"
         )
         
         if uploaded_files:
@@ -583,7 +699,8 @@ with tab_analyze:
             
             with col1:
                 st.write("**LLM Model:**")
-                st.code(status_data.get("models", {}).get("llm", {}).get("model", "N/A"))
+                model_name = status_data.get("models", {}).get("llm", {}).get("model", st.session_state.backend_model)
+                st.code(model_name)
                 
                 st.write("**Embedding Model:**")
                 st.code(status_data.get("models", {}).get("embeddings", {}).get("model", "N/A"))
@@ -653,7 +770,8 @@ with tab_analyze:
 # Footer
 st.divider()
 st.caption(
-    "🤖 Agentic RAG System | "
-    f"Powered by Ollama ({config.OLLAMA_MODEL}) & ChromaDB | "
-    "Multi-Agent Reasoning System"
+    f"🤖 Agentic RAG System | "
+    f"Powered by Ollama ({st.session_state.backend_model}) & ChromaDB | "
+    f"Multi-Agent Reasoning System | "
+    f"Backend: {st.session_state.backend_status}"
 )

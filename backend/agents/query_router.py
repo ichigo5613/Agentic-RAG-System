@@ -1,5 +1,5 @@
 # backend/agents/query_router.py
-from typing import Dict, Any
+from typing import List, Dict, Any
 from enum import Enum
 
 from backend.utils.logger import logger

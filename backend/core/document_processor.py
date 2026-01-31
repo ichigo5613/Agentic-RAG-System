@@ -70,6 +70,16 @@ class AdvancedDocumentProcessor:
         try:
             loader_class = loaders[ext]
             
+            # SPECIAL HANDLING FOR LARGE PDFS
+            if ext == '.pdf':
+                file_size = os.path.getsize(filepath)
+                MAX_PDF_SIZE = 20 * 1024 * 1024  # 20MB
+                
+                if file_size > MAX_PDF_SIZE:
+                    logger.warning(f"Large PDF detected ({file_size/(1024*1024):.1f}MB). Using optimized loading.")
+                    # Use fast loading with page limit
+                    return self._load_large_pdf_optimized(filepath)
+            
             # Special handling for Excel to preserve tables
             if ext in ['.xlsx', '.xls']:
                 loader = loader_class(filepath, mode="elements")
@@ -82,7 +92,49 @@ class AdvancedDocumentProcessor:
         except Exception as e:
             logger.error(f"Failed to load document {filepath}: {str(e)}")
             raise
-    
+
+    def _load_large_pdf_optimized(self, filepath: str) -> List[Any]:
+        """Optimized loading for large PDFs"""
+        try:
+            from PyPDF2 import PdfReader
+            from langchain_core.documents import Document
+            
+            reader = PdfReader(filepath)
+            documents = []
+            
+            # Process only first 100 pages for large PDFs
+            max_pages = min(100, len(reader.pages))
+            logger.info(f"Processing {max_pages} of {len(reader.pages)} pages for large PDF")
+            
+            for page_num in range(max_pages):
+                try:
+                    page = reader.pages[page_num]
+                    text = page.extract_text()
+                    
+                    if text and len(text.strip()) > 50:  # Only add if meaningful text
+                        doc = Document(
+                            page_content=text,
+                            metadata={
+                                "source": os.path.basename(filepath),
+                                "page": page_num + 1,
+                                "total_pages": len(reader.pages)
+                            }
+                        )
+                        documents.append(doc)
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing page {page_num + 1}: {str(e)}")
+                    continue
+            
+            logger.info(f"Optimized loading: {len(documents)} pages extracted")
+            return documents
+            
+        except Exception as e:
+            logger.error(f"Optimized PDF loading failed: {str(e)}")
+            # Fallback to regular loader
+            loader = PyPDFLoader(filepath)
+            return loader.load()
+
     def smart_chunking(self, documents: List[Any], filename: str) -> Tuple[List[str], List[Dict]]:
         """Apply intelligent chunking based on document type and content"""
         ext = os.path.splitext(filename)[1].lower()

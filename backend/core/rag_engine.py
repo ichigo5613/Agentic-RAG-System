@@ -1,5 +1,5 @@
 # backend/core/rag_engine.py
-from typing import Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 import time
 from functools import lru_cache
 

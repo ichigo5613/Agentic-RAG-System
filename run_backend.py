@@ -48,22 +48,30 @@ def start_ollama():
         return False
 
 def check_requirements():
-    """Check if all requirements are installed"""
+    """Check if all requirements are installed - FIXED VERSION"""
     print("🔍 Checking requirements...")
     
+    # FIXED: Updated import names to match actual package names
     required_packages = [
-        "flask", "langchain", "chromadb", "sentence-transformers",
-        "pypdf", "python-dotenv", "requests"
+        ("flask", "flask"),
+        ("langchain", "langchain"),
+        ("langchain_community", "langchain-community"),
+        ("langchain_chroma", "langchain-chroma"),
+        ("sentence_transformers", "sentence-transformers"),
+        ("pypdf", "pypdf"),
+        ("dotenv", "python-dotenv"),
+        ("requests", "requests"),
+        ("chromadb", "chromadb")
     ]
     
     missing = []
-    for package in required_packages:
+    for import_name, package_name in required_packages:
         try:
-            __import__(package.replace("-", "_"))
-            print(f"  ✅ {package}")
+            __import__(import_name)
+            print(f"  ✅ {package_name}")
         except ImportError:
-            missing.append(package)
-            print(f"  ❌ {package}")
+            missing.append(package_name)
+            print(f"  ❌ {package_name}")
     
     if missing:
         print(f"\n❌ Missing packages: {', '.join(missing)}")
@@ -135,8 +143,12 @@ def main():
     print("-" * 60)
     
     try:
+        # Add the backend directory to Python path
+        backend_path = os.path.join(os.path.dirname(__file__), "backend")
+        sys.path.insert(0, backend_path)
+        
         # Import and run the Flask app
-        from backend.app import app
+        from app import app
         
         # Open browser after delay
         def open_browser():
@@ -158,6 +170,8 @@ def main():
         print("\n\n👋 Server stopped by user")
     except Exception as e:
         print(f"\n❌ Failed to start server: {e}")
+        import traceback
+        traceback.print_exc()
         sys.exit(1)
 
 if __name__ == "__main__":

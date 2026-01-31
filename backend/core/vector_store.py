@@ -1,16 +1,12 @@
-# backend/core/vector_store.py
+# backend/core/vector_store.py - FIXED IMPORTS
 from typing import List, Dict, Any, Optional, Tuple
 import uuid
 from datetime import datetime
 from langchain_chroma import Chroma
 from langchain_huggingface import HuggingFaceEmbeddings
-from langchain.retrievers import (
-    ContextualCompressionRetriever,
-    MultiQueryRetriever
-)
-from langchain.retrievers.document_compressors import LLMChainExtractor
-from langchain.retrievers.ensemble import EnsembleRetriever
-from langchain.retrievers import BM25Retriever
+# from langchain.retrievers import ContextualCompressionRetriever
+# from langchain.retrievers.multi_query import MultiQueryRetriever
+# from langchain.retrievers.document_compressors import LLMChainExtractor
 from langchain_core.documents import Document
 
 from backend.config import config
@@ -74,13 +70,10 @@ class EnhancedVectorStore:
             ids=ids
         )
         
-        logger.info(f"Added {len(texts)} documents to vector store")
+        logger.info(f"Added {len(texts)} documents to ChromaDB")
         return ids
     
-    def search(self, 
-              query: str, 
-              top_k: int = None, 
-              filters: Optional[Dict] = None) -> Dict[str, Any]:
+    def search(self, query: str, top_k: int = None, filters: Optional[Dict] = None) -> Dict[str, Any]:
         """Basic similarity search"""
         top_k = top_k or config.TOP_K_RETRIEVAL
         
@@ -126,7 +119,7 @@ class EnhancedVectorStore:
             if hyde_results["documents"]:
                 all_results.append(hyde_results)
         
-        # 3. Multi-query retrieval
+        # 3. Multi-query retrieval (simplified implementation)
         if use_multi_query and len(all_results) > 0:
             multi_query_results = self._multi_query_search(query)
             if multi_query_results["documents"]:
