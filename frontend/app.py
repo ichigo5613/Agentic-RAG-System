@@ -1,10 +1,11 @@
-#Agentic RAG System/frontend/app.py
+# frontend/app.py
 import streamlit as st
 import requests
 import json
 import time
 import os
-from typing import List, Dict
+from typing import List, Dict, Any
+import pandas as pd
 
 # Page configuration
 st.set_page_config(
@@ -24,58 +25,108 @@ if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = []
 if 'agent_mode' not in st.session_state:
     st.session_state.agent_mode = True
+if 'show_thought_process' not in st.session_state:
+    st.session_state.show_thought_process = True
+if 'api_status' not in st.session_state:
+    st.session_state.api_status = "unknown"
 
 # Custom CSS
 st.markdown("""
 <style>
     .stButton button {
         width: 100%;
+        transition: all 0.3s ease;
+    }
+    .stButton button:hover {
+        transform: translateY(-2px);
+        box-shadow: 0 4px 12px rgba(0,0,0,0.15);
     }
     .chat-message {
-        padding: 1rem;
-        border-radius: 0.5rem;
+        padding: 1.2rem;
+        border-radius: 12px;
         margin-bottom: 1rem;
+        border: 1px solid #e0e0e0;
+        animation: fadeIn 0.3s ease-in;
+    }
+    @keyframes fadeIn {
+        from { opacity: 0; transform: translateY(10px); }
+        to { opacity: 1; transform: translateY(0); }
     }
     .user-message {
-        background-color: #e3f2fd;
-        border-left: 4px solid #2196f3;
+        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+        color: white;
+        border-left: 6px solid #4f46e5;
     }
     .assistant-message {
-        background-color: #f5f5f5;
-        border-left: 4px solid #4caf50;
+        background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+        border-left: 6px solid #10b981;
     }
     .agent-thinking {
-        background-color: #fff3e0;
-        border-left: 4px solid #ff9800;
+        background: linear-gradient(135deg, #fff3e0 0%, #ffcc80 100%);
+        border-left: 6px solid #f59e0b;
         font-style: italic;
+        font-size: 0.9em;
+    }
+    .citation-box {
+        background-color: #f8f9fa;
+        border-left: 4px solid #6b7280;
+        padding: 0.8rem;
+        margin: 0.5rem 0;
+        border-radius: 6px;
+        font-size: 0.85em;
+    }
+    .status-indicator {
+        display: inline-block;
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        margin-right: 8px;
+    }
+    .status-online {
+        background-color: #10b981;
+        box-shadow: 0 0 8px #10b981;
+    }
+    .status-offline {
+        background-color: #ef4444;
     }
 </style>
 """, unsafe_allow_html=True)
 
-def check_backend():
-    """Check if backend is running"""
+def check_api_status():
+    """Check if backend API is running"""
     try:
-        response = requests.get(f"{BACKEND_URL}/health", timeout=5)
-        return response.status_code == 200
+        response = requests.get(f"{BACKEND_URL}/health", timeout=3)
+        if response.status_code == 200:
+            st.session_state.api_status = "online"
+            return True
+        else:
+            st.session_state.api_status = "offline"
+            return False
     except:
+        st.session_state.api_status = "offline"
         return False
 
 def upload_file(file):
     """Upload file to backend"""
     try:
-        files = {'file': (file.name, file.getvalue())}
-        response = requests.post(f"{BACKEND_URL}/upload", files=files, timeout=120)
+        files = {'file': (file.name, file.getvalue(), file.type)}
+        response = requests.post(
+            f"{BACKEND_URL}/upload", 
+            files=files, 
+            timeout=120
+        )
         return response
     except Exception as e:
         st.error(f"Upload failed: {str(e)}")
         return None
 
-def send_query(query, use_agent=True):
+def send_query(query, agent_mode=True):
     """Send query to backend"""
-    endpoint = "/agent_query" if use_agent else "/query"
-    payload = {"query": query}
-    if use_agent:
-        payload["use_tools"] = st.session_state.get("use_tools", True)
+    endpoint = "/query" if agent_mode else "/quick_query"
+    payload = {
+        "query": query,
+        "use_agentic": agent_mode
+    }
     
     try:
         response = requests.post(
@@ -88,61 +139,91 @@ def send_query(query, use_agent=True):
         st.error(f"Query failed: {str(e)}")
         return None
 
-def get_documents():
-    """Get list of uploaded documents"""
+def get_system_status():
+    """Get system status from backend"""
     try:
-        response = requests.get(f"{BACKEND_URL}/documents", timeout=10)
+        response = requests.get(f"{BACKEND_URL}/status", timeout=5)
         if response.status_code == 200:
-            return response.json().get("documents", [])
+            return response.json()
+        return None
     except:
-        return []
-    return []
+        return None
 
 def clear_documents():
-    """Clear all documents"""
+    """Clear all documents from backend"""
     try:
         response = requests.post(f"{BACKEND_URL}/clear", timeout=10)
         return response.status_code == 200
     except:
         return False
 
+def get_documents_list():
+    """Get list of uploaded documents"""
+    try:
+        response = requests.get(f"{BACKEND_URL}/documents", timeout=5)
+        if response.status_code == 200:
+            return response.json().get("documents", [])
+        return []
+    except:
+        return []
+
 # Sidebar
 with st.sidebar:
-    st.title("⚙️ Settings")
+    st.title("🤖 Agentic RAG System")
     
-    # Backend status
-    st.subheader("System Status")
-    if check_backend():
-        st.success("✅ Backend Connected")
-    else:
-        st.error("❌ Backend Offline")
-        st.info("Start the backend: `python backend/app.py`")
+    # API Status
+    st.subheader("🔌 Connection Status")
+    api_online = check_api_status()
     
-    # Mode selection
-    st.subheader("Mode")
-    agent_mode = st.toggle("🤖 Agent Mode", value=True)
+    col1, col2 = st.columns([1, 3])
+    with col1:
+        status_class = "status-online" if api_online else "status-offline"
+        st.markdown(f'<div class="status-indicator {status_class}"></div>', unsafe_allow_html=True)
+    with col2:
+        status_text = "✅ Online" if api_online else "❌ Offline"
+        st.write(f"**Backend:** {status_text}")
+    
+    if not api_online:
+        st.warning("Backend is offline. Start it with: `python backend/app.py`")
+        st.code("cd backend\npython app.py", language="bash")
+    
+    st.divider()
+    
+    # Mode Selection
+    st.subheader("⚙️ Agent Mode")
+    agent_mode = st.toggle(
+        "Enable Agentic Workflow", 
+        value=st.session_state.agent_mode,
+        help="When enabled, uses multi-agent system for complex reasoning"
+    )
     st.session_state.agent_mode = agent_mode
     
     if agent_mode:
-        use_tools = st.toggle("🛠️ Enable Tools", value=True)
-        st.session_state.use_tools = use_tools
+        show_thought = st.toggle(
+            "Show Thought Process", 
+            value=st.session_state.show_thought_process,
+            help="Display agent reasoning steps"
+        )
+        st.session_state.show_thought_process = show_thought
     
-    # Document management
-    st.subheader("📚 Documents")
+    st.divider()
     
-    # List current documents
-    documents = get_documents()
+    # Document Management
+    st.subheader("📚 Document Management")
+    
+    # Document list
+    documents = get_documents_list() if api_online else []
     if documents:
-        st.write("Uploaded files:")
-        for doc in documents[:5]:  # Show first 5
-            st.write(f"• {doc}")
+        st.write(f"**Uploaded Documents ({len(documents)}):**")
+        for doc in documents[:5]:
+            st.write(f"📄 {doc}")
         if len(documents) > 5:
-            st.write(f"... and {len(documents) - 5} more")
+            st.write(f"*... and {len(documents) - 5} more*")
     else:
-        st.info("No documents uploaded yet")
+        st.info("No documents uploaded")
     
     # Clear button
-    if st.button("🗑️ Clear All Documents", type="secondary"):
+    if st.button("🗑️ Clear All Documents", type="secondary", use_container_width=True):
         if clear_documents():
             st.session_state.uploaded_files = []
             st.success("Documents cleared!")
@@ -153,280 +234,426 @@ with st.sidebar:
     
     st.divider()
     
-    # Quick actions
+    # Quick Actions
     st.subheader("⚡ Quick Actions")
     
-    if st.button("📝 Summarize Documents"):
-        with st.spinner("Summarizing..."):
-            try:
-                response = requests.post(f"{BACKEND_URL}/query", 
-                                       json={"query": "Summarize all documents"},
-                                       timeout=120)
-                if response.status_code == 200:
-                    result = response.json()
-                    st.session_state.chat_history.append({
-                        "role": "assistant",
-                        "content": f"**Document Summary:**\n\n{result['answer']}",
-                        "type": "summary"
-                    })
-                    st.rerun()
-            except:
-                st.error("Summarization failed")
+    col1, col2 = st.columns(2)
     
-    if st.button("🔍 Search Test"):
-        st.session_state.chat_history.append({
-            "role": "user",
-            "content": "Search for important information"
-        })
-        st.rerun()
+    with col1:
+        if st.button("📊 System Info", use_container_width=True):
+            status_data = get_system_status()
+            if status_data:
+                st.session_state.system_info = status_data
+                st.rerun()
+    
+    with col2:
+        if st.button("🔄 Refresh", use_container_width=True):
+            st.rerun()
+    
+    st.divider()
+    
+    # System Info (collapsible)
+    if 'system_info' in st.session_state:
+        with st.expander("📈 System Information"):
+            info = st.session_state.system_info
+            
+            st.metric("Documents", info.get("storage", {}).get("vector_store", {}).get("documents", 0))
+            st.metric("Cache Size", info.get("storage", {}).get("cache", {}).get("size", 0))
+            
+            llm_status = info.get("models", {}).get("llm", {}).get("status", "unknown")
+            st.write(f"**LLM:** {llm_status}")
+            st.write(f"**Model:** {info.get('models', {}).get('llm', {}).get('model', 'N/A')}")
 
-# Main content area
+# Main Content
 st.title("🤖 Agentic RAG System")
-st.caption("Upload documents and chat with AI agents using local LLMs")
+st.caption("Intelligent document analysis with multi-agent reasoning")
 
 # Create tabs
-tab1, tab2, tab3 = st.tabs(["💬 Chat", "📤 Upload", "📊 Status"])
+tab_chat, tab_upload, tab_analyze = st.tabs(["💬 Chat", "📤 Upload", "📊 Analyze"])
 
 # Tab 1: Chat Interface
-with tab1:
-    # Display mode
-    mode_text = "🤖 **Agent Mode**" if st.session_state.agent_mode else "🔍 **Basic RAG Mode**"
-    st.write(mode_text)
+with tab_chat:
+    # Mode indicator
+    if st.session_state.agent_mode:
+        st.success("🤖 **Agent Mode**: Multi-agent reasoning enabled")
+    else:
+        st.info("🔍 **Basic Mode**: Direct retrieval and response")
     
-    # Display chat history
-    chat_container = st.container()
+    # Chat container
+    chat_container = st.container(height=500, border=True)
     
     with chat_container:
         for message in st.session_state.chat_history:
             if message["role"] == "user":
                 st.markdown(f"""
                 <div class="chat-message user-message">
-                    <strong>You:</strong> {message["content"]}
+                    <strong>👤 You:</strong><br>
+                    {message["content"]}
                 </div>
                 """, unsafe_allow_html=True)
-            elif message.get("type") == "thinking":
+            
+            elif message.get("type") == "thinking" and st.session_state.show_thought_process:
                 st.markdown(f"""
                 <div class="chat-message agent-thinking">
-                    <strong>🤔 Thinking:</strong> {message["content"]}
+                    <strong>🤔 Thinking:</strong><br>
+                    {message["content"]}
                 </div>
                 """, unsafe_allow_html=True)
+            
             else:
+                # Assistant message
                 st.markdown(f"""
                 <div class="chat-message assistant-message">
-                    <strong>Assistant:</strong> {message["content"]}
+                    <strong>🤖 Assistant:</strong><br>
+                    {message["content"]}
                 </div>
                 """, unsafe_allow_html=True)
                 
-                # Show sources if available
-                if message.get("sources"):
-                    with st.expander("📚 Sources"):
-                        for source in message["sources"]:
-                            st.write(f"📄 {source}")
+                # Show citations if available
+                if message.get("citations"):
+                    with st.expander(f"📚 Sources ({len(message['citations'])})"):
+                        for citation in message["citations"]:
+                            st.markdown(f"""
+                            <div class="citation-box">
+                                <strong>Source {citation.get('id', '?')}:</strong> {citation.get('source', 'Unknown')}<br>
+                                <em>{citation.get('snippet', '')}</em>
+                            </div>
+                            """, unsafe_allow_html=True)
     
     # Chat input
     st.divider()
-    col1, col2 = st.columns([5, 1])
     
-    with col1:
+    col_input, col_send = st.columns([5, 1])
+    
+    with col_input:
         user_input = st.text_input(
-            "Type your message...",
+            "Type your question...",
             key="chat_input",
             label_visibility="collapsed",
-            placeholder="Ask about your documents..."
+            placeholder="Ask about your documents...",
+            disabled=not api_online
         )
     
-    with col2:
-        send_button = st.button("📤 Send", type="primary", use_container_width=True)
+    with col_send:
+        send_disabled = not api_online or not user_input.strip()
+        send_button = st.button(
+            "📤 Send", 
+            type="primary", 
+            use_container_width=True,
+            disabled=send_disabled
+        )
     
     # Handle send
-    if send_button and user_input:
-        # Add user message
+    if send_button and user_input.strip():
+        # Add user message to history
         st.session_state.chat_history.append({
             "role": "user",
-            "content": user_input
+            "content": user_input,
+            "timestamp": time.time()
         })
         
-        # Add thinking message in agent mode
-        if st.session_state.agent_mode:
+        # Show thinking message if in agent mode
+        if st.session_state.agent_mode and st.session_state.show_thought_process:
             st.session_state.chat_history.append({
                 "role": "assistant",
-                "content": "Analyzing query and retrieving information...",
-                "type": "thinking"
+                "type": "thinking",
+                "content": "🤔 Analyzing query, decomposing if needed, retrieving information...",
+                "timestamp": time.time()
             })
         
         st.rerun()
         
-        # Remove thinking message
-        if st.session_state.agent_mode:
-            st.session_state.chat_history.pop()
-        
-        # Get response
-        with st.spinner("Thinking..." if st.session_state.agent_mode else "Searching..."):
+        # Process query
+        with st.spinner("🤖 Processing..." if st.session_state.agent_mode else "🔍 Searching..."):
             response = send_query(user_input, st.session_state.agent_mode)
+            
+            # Remove thinking message if it exists
+            if st.session_state.agent_mode and st.session_state.show_thought_process:
+                st.session_state.chat_history.pop()
             
             if response and response.status_code == 200:
                 result = response.json()
                 
-                # Add assistant response
+                # Prepare assistant message
                 assistant_msg = {
                     "role": "assistant",
-                    "content": result["answer"]
+                    "content": result.get("answer", "No answer generated."),
+                    "timestamp": time.time(),
+                    "processing_time": result.get("processing_time"),
+                    "cached": result.get("cached", False)
                 }
                 
-                # Add additional info for agent mode
-                if st.session_state.agent_mode:
-                    if result.get("thought_process"):
+                # Add citations if available
+                if result.get("citations"):
+                    assistant_msg["citations"] = result["citations"]
+                
+                # Add thought process for agent mode
+                if st.session_state.agent_mode and result.get("thought_process"):
+                    for thought in result["thought_process"]:
                         st.session_state.chat_history.append({
                             "role": "assistant",
-                            "content": " | ".join(result["thought_process"]),
-                            "type": "thinking"
+                            "type": "thinking",
+                            "content": f"🔧 {thought}",
+                            "timestamp": time.time()
                         })
-                    
-                    if result.get("tools_used"):
-                        assistant_msg["content"] += f"\n\n**Tools used:** {', '.join(result['tools_used'])}"
                 
-                if result.get("sources"):
-                    assistant_msg["sources"] = result["sources"]
-                
+                # Add assistant response
                 st.session_state.chat_history.append(assistant_msg)
                 
+                # Add performance info
+                if result.get("processing_time"):
+                    perf_msg = f"⏱️ Response time: {result['processing_time']}s"
+                    if result.get("cached"):
+                        perf_msg += " (cached)"
+                    
+                    st.session_state.chat_history.append({
+                        "role": "system",
+                        "type": "info",
+                        "content": perf_msg,
+                        "timestamp": time.time()
+                    })
+                
             else:
-                error_msg = response.json().get("error", "Unknown error") if response else "Connection error"
+                error_msg = "Connection error"
+                if response:
+                    try:
+                        error_data = response.json()
+                        error_msg = error_data.get("error", "Unknown error")
+                    except:
+                        error_msg = f"HTTP {response.status_code}"
+                
                 st.session_state.chat_history.append({
                     "role": "assistant",
-                    "content": f"Error: {error_msg}"
+                    "content": f"❌ Error: {error_msg}",
+                    "timestamp": time.time()
                 })
         
         st.rerun()
     
-    # Clear chat button
-    if st.button("🗑️ Clear Chat", type="secondary"):
-        st.session_state.chat_history = []
-        st.rerun()
-
-# Tab 2: Upload Documents
-with tab2:
-    st.header("📤 Upload Documents")
-    
-    # File uploader
-    uploaded_files = st.file_uploader(
-        "Choose files",
-        type=['pdf', 'docx', 'txt', 'xlsx', 'xls', 'pptx'],
-        accept_multiple_files=True,
-        help="Supported formats: PDF, Word, Text, Excel, PowerPoint"
-    )
-    
-    if uploaded_files:
-        st.write(f"Selected {len(uploaded_files)} file(s):")
-        for file in uploaded_files:
-            st.write(f"• {file.name} ({file.size:,} bytes)")
-        
-        # Process button
-        if st.button("🚀 Process Files", type="primary"):
-            progress_bar = st.progress(0)
-            success_count = 0
-            
-            for i, file in enumerate(uploaded_files):
-                st.write(f"Processing {file.name}...")
-                
-                response = upload_file(file)
-                
-                if response and response.status_code == 200:
-                    result = response.json()
-                    st.success(f"✅ {file.name}: {result.get('message', 'Processed')}")
-                    if file.name not in st.session_state.uploaded_files:
-                        st.session_state.uploaded_files.append(file.name)
-                    success_count += 1
-                else:
-                    error = response.json().get("error", "Unknown error") if response else "Upload failed"
-                    st.error(f"❌ {file.name}: {error}")
-                
-                progress_bar.progress((i + 1) / len(uploaded_files))
-            
-            if success_count > 0:
-                st.balloons()
-                st.success(f"Successfully processed {success_count} file(s)!")
-                
-                # Refresh document list
-                documents = get_documents()
-                st.info(f"Total documents in system: {len(documents)}")
-
-# Tab 3: System Status
-with tab3:
-    st.header("📊 System Status")
-    
+    # Chat controls
     col1, col2, col3 = st.columns(3)
     
     with col1:
-        st.metric("Chat Messages", len(st.session_state.chat_history))
+        if st.button("🗑️ Clear Chat", use_container_width=True):
+            st.session_state.chat_history = []
+            st.rerun()
     
     with col2:
-        st.metric("Uploaded Files", len(st.session_state.uploaded_files))
+        if st.button("📋 Copy Last", use_container_width=True, disabled=not st.session_state.chat_history):
+            if st.session_state.chat_history:
+                last_msg = st.session_state.chat_history[-1]
+                if last_msg["role"] == "assistant":
+                    st.code(last_msg["content"], language=None)
     
     with col3:
-        if check_backend():
-            st.metric("Backend", "✅ Online")
-        else:
-            st.metric("Backend", "❌ Offline")
+        if st.button("💾 Export Chat", use_container_width=True, disabled=not st.session_state.chat_history):
+            chat_data = json.dumps(st.session_state.chat_history, indent=2)
+            st.download_button(
+                label="Download JSON",
+                data=chat_data,
+                file_name=f"chat_history_{int(time.time())}.json",
+                mime="application/json",
+                use_container_width=True
+            )
+
+# Tab 2: Upload Documents
+with tab_upload:
+    st.header("📤 Upload Documents")
     
-    st.divider()
-    
-    # System information
-    st.subheader("System Information")
-    
-    if check_backend():
-        try:
-            response = requests.get(f"{BACKEND_URL}/health", timeout=5)
-            if response.status_code == 200:
-                health_data = response.json()
-                
-                col1, col2 = st.columns(2)
-                
-                with col1:
-                    st.write("**Ollama Status:**")
-                    if health_data.get("ollama_connected"):
-                        st.success("✅ Connected")
-                    else:
-                        st.error("❌ Disconnected")
-                
-                with col2:
-                    st.write("**Milvus Status:**")
-                    if health_data.get("milvus_connected"):
-                        st.success("✅ Connected")
-                    else:
-                        st.error("❌ Disconnected")
-                
-                st.write(f"**Documents in Vector Store:** {health_data.get('documents_count', 0)}")
-                
-        except:
-            st.error("Could not fetch system details")
-    
-    # Quick test
-    st.divider()
-    st.subheader("Quick Test")
-    
-    test_query = st.text_input("Test query:", "What is in the documents?")
-    
-    if st.button("Run Test"):
-        with st.spinner("Testing..."):
-            response = send_query(test_query, False)
+    if not api_online:
+        st.warning("Backend must be running to upload documents.")
+        st.info("Start the backend server first: `python backend/app.py`")
+    else:
+        # File uploader
+        uploaded_files = st.file_uploader(
+            "Choose files to upload",
+            type=list(config.ALLOWED_EXTENSIONS),
+            accept_multiple_files=True,
+            help=f"Supported formats: {', '.join(config.ALLOWED_EXTENSIONS)}"
+        )
+        
+        if uploaded_files:
+            st.write(f"**Selected {len(uploaded_files)} file(s):**")
             
-            if response and response.status_code == 200:
-                result = response.json()
-                st.success("✅ System is working!")
+            file_info = []
+            for file in uploaded_files:
+                size_kb = len(file.getvalue()) / 1024
+                file_info.append({
+                    "Name": file.name,
+                    "Type": file.type,
+                    "Size": f"{size_kb:.1f} KB"
+                })
+            
+            st.dataframe(pd.DataFrame(file_info), use_container_width=True)
+            
+            # Process button
+            if st.button("🚀 Process & Upload Files", type="primary", use_container_width=True):
+                progress_bar = st.progress(0)
+                status_container = st.empty()
+                results = []
                 
-                with st.expander("Test Results"):
-                    st.write(f"**Query:** {result.get('query')}")
-                    st.write(f"**Answer:** {result.get('answer')}")
-                    st.write(f"**Context Chunks:** {result.get('context_chunks')}")
+                for i, file in enumerate(uploaded_files):
+                    status_container.write(f"Processing **{file.name}**...")
                     
-                    if result.get('sources'):
-                        st.write("**Sources:**")
-                        for source in result['sources']:
-                            st.write(f"- {source}")
-            else:
-                st.error("❌ Test failed")
+                    response = upload_file(file)
+                    
+                    if response and response.status_code == 200:
+                        result = response.json()
+                        results.append({
+                            "file": file.name,
+                            "status": "✅ Success",
+                            "chunks": result.get("chunks_processed", 0),
+                            "message": result.get("message", "")
+                        })
+                    else:
+                        error_msg = "Unknown error"
+                        if response:
+                            try:
+                                error_data = response.json()
+                                error_msg = error_data.get("error", "Upload failed")
+                            except:
+                                error_msg = f"HTTP {response.status_code}"
+                        
+                        results.append({
+                            "file": file.name,
+                            "status": "❌ Failed",
+                            "chunks": 0,
+                            "message": error_msg
+                        })
+                    
+                    progress_bar.progress((i + 1) / len(uploaded_files))
+                
+                # Show results
+                status_container.empty()
+                st.divider()
+                st.subheader("📊 Processing Results")
+                
+                results_df = pd.DataFrame(results)
+                st.dataframe(results_df, use_container_width=True)
+                
+                # Summary
+                success_count = sum(1 for r in results if r["status"] == "✅ Success")
+                total_chunks = sum(r["chunks"] for r in results)
+                
+                if success_count > 0:
+                    st.success(f"✅ Successfully processed {success_count} file(s) with {total_chunks} total chunks!")
+                    st.balloons()
+                    
+                    # Update document list
+                    documents = get_documents_list()
+                    st.info(f"**Total documents in system:** {len(documents)}")
+                
+                # Clear button
+                if st.button("🔄 Process More Files", use_container_width=True):
+                    st.rerun()
+
+# Tab 3: Analyze & Debug
+with tab_analyze:
+    st.header("📊 System Analysis")
+    
+    if not api_online:
+        st.warning("Connect to backend to view system analysis.")
+    else:
+        # System status
+        with st.spinner("Fetching system status..."):
+            status_data = get_system_status()
+        
+        if status_data:
+            col1, col2, col3 = st.columns(3)
+            
+            with col1:
+                docs_count = status_data.get("storage", {}).get("vector_store", {}).get("documents", 0)
+                st.metric("📚 Documents", docs_count)
+            
+            with col2:
+                cache_size = status_data.get("storage", {}).get("cache", {}).get("size", 0)
+                st.metric("💾 Cache", cache_size)
+            
+            with col3:
+                llm_status = status_data.get("models", {}).get("llm", {}).get("status", "unknown")
+                status_icon = "✅" if llm_status == "connected" else "❌"
+                st.metric("🤖 LLM", f"{status_icon} {llm_status}")
+            
+            st.divider()
+            
+            # Model Information
+            st.subheader("🔧 Model Configuration")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                st.write("**LLM Model:**")
+                st.code(status_data.get("models", {}).get("llm", {}).get("model", "N/A"))
+                
+                st.write("**Embedding Model:**")
+                st.code(status_data.get("models", {}).get("embeddings", {}).get("model", "N/A"))
+            
+            with col2:
+                st.write("**Vector Store:**")
+                st.code(status_data.get("storage", {}).get("vector_store", {}).get("type", "N/A"))
+                
+                st.write("**Collection:**")
+                st.code(status_data.get("storage", {}).get("vector_store", {}).get("collection", "N/A"))
+            
+            st.divider()
+            
+            # Test Queries
+            st.subheader("🧪 Test Queries")
+            
+            test_queries = [
+                "What are the main topics in the documents?",
+                "Summarize the key points from all documents",
+                "Find information about specific topics",
+                "Compare different concepts mentioned"
+            ]
+            
+            test_cols = st.columns(2)
+            for idx, query in enumerate(test_queries):
+                with test_cols[idx % 2]:
+                    if st.button(f"🔍 {query[:30]}...", use_container_width=True):
+                        with st.spinner("Testing..."):
+                            response = send_query(query, st.session_state.agent_mode)
+                            
+                            if response and response.status_code == 200:
+                                result = response.json()
+                                
+                                with st.expander(f"Test: {query}"):
+                                    st.write("**Answer:**")
+                                    st.write(result.get("answer", "No answer"))
+                                    
+                                    st.write("**Performance:**")
+                                    st.write(f"Time: {result.get('processing_time', 0):.2f}s")
+                                    st.write(f"Cached: {result.get('cached', False)}")
+                            else:
+                                st.error("Test failed")
+            
+            st.divider()
+            
+            # Debug Tools
+            st.subheader("🐛 Debug Tools")
+            
+            debug_query = st.text_input("Debug query:", "Test the system")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if st.button("Simple Query", use_container_width=True):
+                    with st.spinner("Processing..."):
+                        response = send_query(debug_query, agent_mode=False)
+                        if response:
+                            st.json(response.json())
+            
+            with col2:
+                if st.button("Agentic Query", use_container_width=True):
+                    with st.spinner("Processing with agents..."):
+                        response = send_query(debug_query, agent_mode=True)
+                        if response:
+                            st.json(response.json())
 
 # Footer
 st.divider()
-st.caption("Agentic RAG System | Powered by Ollama (phi3:mini) & Milvus | Local AI Assistant")
+st.caption(
+    "🤖 Agentic RAG System | "
+    f"Powered by Ollama ({config.OLLAMA_MODEL}) & ChromaDB | "
+    "Multi-Agent Reasoning System"
+)

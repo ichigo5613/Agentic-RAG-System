@@ -1,5 +1,143 @@
-/pycache
+# ===============================
+# Python bytecode & cache
+# ===============================
+__pycache__/
+*.py[cod]
+*$py.class
 
-venv
+# ===============================
+# Virtual environments
+# ===============================
+venv/
+.venv/
+env/
+ENV/
+virtualenv/
+.conda/
 
+# ===============================
+# Distribution / packaging
+# ===============================
+build/
+dist/
+*.egg-info/
+.eggs/
+
+# ===============================
+# Installer logs
+# ===============================
+pip-log.txt
+pip-delete-this-directory.txt
+
+# ===============================
+# Unit test / coverage reports
+# ===============================
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+pytest_cache/
+nosetests.xml
+coverage.xml
+*.cover
+*.py,cover
+
+# ===============================
+# Logs & runtime files
+# ===============================
+*.log
+*.pid
+
+# ===============================
+# Jupyter Notebook
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# IDE / Editor files
+# ===============================
+.vscode/
+.idea/
+*.sublime-project
+*.sublime-workspace
+
+# ===============================
+# OS-specific files
+# ===============================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ===============================
+# Environment variables / secrets
+# ===============================
 .env
+.env.*
+*.key
+*.pem
+*.crt
+secrets/
+config.yaml
+
+# ===============================
+# Data / model files (ML / RAG)
+# ===============================
+data/
+datasets/
+*.csv
+*.tsv
+*.parquet
+*.xlsx
+*.xls
+*.docx
+*.pdf
+
+# ===============================
+# Vector DB / embeddings
+# ===============================
+chroma/
+faiss_index/
+milvus/
+vector_store/
+
+# ===============================
+# LLM / AI models
+# ===============================
+models/
+*.bin
+*.pt
+*.pth
+*.gguf
+*.onnx
+
+# ===============================
+# Cache & temp
+# ===============================
+.cache/
+tmp/
+temp/
+
+# ===============================
+# Docker
+# ===============================
+docker-compose.override.yml
+
+# ===============================
+# Streamlit
+# ===============================
+.streamlit/secrets.toml
+
+# ===============================
+# SQLite / local DB
+# ===============================
+*.db
+*.sqlite
+*.sqlite3
+
+# ===============================
+# API keys & credentials
+# ===============================
+credentials.json
+token.json

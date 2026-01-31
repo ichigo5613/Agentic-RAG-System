@@ -1,37 +1,72 @@
-#Agentic RAG System/backend/config.py
-
+# backend/config.py
 import os
+from dataclasses import dataclass
+from typing import List, Optional
 from dotenv import load_dotenv
 
 load_dotenv()
 
+@dataclass
 class Config:
-    # Flask
-    DEBUG = os.getenv("DEBUG", "False").lower() == "true"
-    SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key")
+    # Flask Settings
+    DEBUG: bool = os.getenv("DEBUG", "False").lower() == "true"
+    SECRET_KEY: str = os.getenv("SECRET_KEY", "agentic-rag-secret-key-2024")
+    MAX_CONTENT_LENGTH: int = 100 * 1024 * 1024  # 100MB
     
-    # Ollama
-    OLLAMA_HOST = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "phi3:mini")
+    # Ollama Settings
+    OLLAMA_HOST: str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
+    OLLAMA_MODEL: str = os.getenv("OLLAMA_MODEL", "phi3:mini")
+    OLLAMA_TIMEOUT: int = 120
+    OLLAMA_TEMPERATURE: float = 0.1
+    OLLAMA_MAX_TOKENS: int = 2000
     
-    # Milvus
-    MILVUS_HOST = os.getenv("MILVUS_HOST", "localhost")
-    MILVUS_PORT = os.getenv("MILVUS_PORT", "19530")
-    COLLECTION_NAME = os.getenv("COLLECTION_NAME", "agentic_rag")
+    # Embedding Model
+    EMBEDDING_MODEL: str = os.getenv("EMBEDDING_MODEL", "BAAI/bge-small-en-v1.5")
     
-    # Embeddings
-    EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "all-MiniLM-L6-v2")
-    EMBEDDING_DIM = 384  # For all-MiniLM-L6-v2
+    # ChromaDB Settings
+    CHROMA_PERSIST_DIR: str = "./storage/chroma_db"
+    COLLECTION_NAME: str = os.getenv("COLLECTION_NAME", "agentic_rag_docs")
     
-    # File Upload
-    UPLOAD_FOLDER = "./storage/uploads"
-    MAX_CONTENT_LENGTH = 16 * 1024 * 1024  # 16MB
-    ALLOWED_EXTENSIONS = {'pdf', 'docx', 'txt', 'xlsx', 'xls', 'pptx'}
+    # File Upload Settings
+    UPLOAD_FOLDER: str = "./storage/uploads"
+    ALLOWED_EXTENSIONS: set = {'pdf', 'docx', 'txt', 'xlsx', 'xls', 'pptx', 'md'}
+    
+    # RAG Settings
+    CHUNK_SIZE: int = 1000
+    CHUNK_OVERLAP: int = 200
+    TOP_K_RETRIEVAL: int = 5
+    TOP_K_RERANK: int = 3
+    SIMILARITY_THRESHOLD: float = 0.7
     
     # Agent Settings
-    MAX_CONTEXT_CHUNKS = 5
-    AGENT_TEMPERATURE = 0.1
+    AGENT_MAX_ITERATIONS: int = 5
+    AGENT_TIMEOUT: int = 60
+    ENABLE_QUERY_DECOMPOSITION: bool = True
+    ENABLE_HYDE: bool = True
+    ENABLE_RERANKING: bool = True
     
-    # Create directories
-    os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-    os.makedirs("./storage/processed", exist_ok=True)
+    # Cache Settings
+    CACHE_TTL: int = 3600  # 1 hour
+    MAX_CACHE_SIZE: int = 1000
+    
+    # Logging
+    LOG_LEVEL: str = os.getenv("LOG_LEVEL", "INFO")
+    LOG_FILE: str = "./logs/agentic_rag.log"
+    
+    @classmethod
+    def create_directories(cls):
+        """Create necessary directories"""
+        directories = [
+            cls.UPLOAD_FOLDER,
+            cls.CHROMA_PERSIST_DIR,
+            "./logs",
+            "./storage",
+        ]
+        
+        for directory in directories:
+            os.makedirs(directory, exist_ok=True)
+            print(f"📁 Created directory: {directory}")
+
+# Initialize config
+config = Config()
+config.create_directories()
