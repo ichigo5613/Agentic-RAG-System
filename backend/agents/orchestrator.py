@@ -77,20 +77,27 @@ class AgentOrchestrator:
         
         route_decision = self.query_router.route(query)
         state["route_decision"] = route_decision
-        state["thought_process"] = [f"Routing: {route_decision}"]
+        
+        # Ensure thought_process is a list
+        if "thought_process" not in state:
+            state["thought_process"] = []
+        elif isinstance(state["thought_process"], str):
+            state["thought_process"] = [state["thought_process"]]
+        
+        state["thought_process"].append(f"Routing: {route_decision}")
         
         return state
     
     def _decide_next_step(self, state: AgentState) -> str:
-        """Decide next step based on routing"""
-        route = state.get("route_decision", "retrieve")
-        
-        if route == "simple" or route == "conversational":
-            return "direct"
-        elif route == "complex":
-            return "decompose"
-        else:
-            return "retrieve"
+            """Decide next step based on routing"""
+            route = state.get("route_decision", "retrieve")
+            
+            if route == "simple" or route == "conversational":
+                return "direct"
+            elif route == "complex":
+                return "decompose"
+            else:
+                return "retrieve"
     
     def _decompose_query(self, state: AgentState) -> AgentState:
         """Decompose complex query into sub-queries"""
@@ -218,15 +225,83 @@ class AgentOrchestrator:
             }
         
         try:
-            # Initialize state
+            # Initialize state with proper thought_process
+            initial_state = AgentState({
+                "query": query,
+                "thought_process": [],  # Initialize as empty list
+                "agentic": True
+            })
+            
+            # Execute workflow
+            final_state = self.workflow.invoke(initial_state)
+            
+            # Extract results - handle missing thought_process
+            response = {
+                "query": query,
+                "answer": final_state.get("answer", "No answer generated."),
+                "thought_process": final_state.get("thought_process", []),  # Default to empty list
+                "citations": final_state.get("citations", []),
+                "sub_queries": final_state.get("sub_queries", []),
+                "route_decision": final_state.get("route_decision", "unknown"),
+                "processing_time": time.time() - start_time,
+                "agentic": True
+            }
+            
+            logger.info(f"Agentic query processed in {response['processing_time']:.2f}s")
+            return response
+            
+        except Exception as e:
+            logger.error(f"Agentic processing failed: {str(e)}")
+            
+            # Fallback to simple RAG
+            results = self.vector_store.advanced_search(query)
+            answer = self.synthesis_agent.synthesize(query, results)
+            
+            return {
+                "query": query,
+                "answer": answer,
+                "citations": self._extract_citations(results),
+                "processing_time": time.time() - start_time,
+                "agentic": False,
+                "error": str(e)
+            }
+    # In the process_query method, add debug logging:
+
+    def process_query(self, query: str, use_agentic: bool = True) -> Dict[str, Any]:
+        """Main method to process a query"""
+        start_time = time.time()
+        
+        logger.info(f"🔍 Processing query: '{query}' (agentic={use_agentic})")
+        
+        if not use_agentic:
+            logger.info("🔄 Using simple RAG (non-agentic)")
+            # Simple RAG fallback
+            results = self.vector_store.advanced_search(query)
+            logger.info(f"📚 Retrieved {len(results.get('documents', []))} chunks")
+            answer = self.synthesis_agent.synthesize(query, results)
+            
+            return {
+                "query": query,
+                "answer": answer,
+                "citations": self._extract_citations(results),
+                "processing_time": time.time() - start_time,
+                "agentic": False
+            }
+        
+        try:
+            # Initialize state with proper thought_process
             initial_state = AgentState({
                 "query": query,
                 "thought_process": [],
                 "agentic": True
             })
             
+            logger.info("🚀 Starting agentic workflow...")
+            
             # Execute workflow
             final_state = self.workflow.invoke(initial_state)
+            
+            logger.info(f"✅ Workflow completed. Final state keys: {list(final_state.keys())}")
             
             # Extract results
             response = {
@@ -244,9 +319,10 @@ class AgentOrchestrator:
             return response
             
         except Exception as e:
-            logger.error(f"Agentic processing failed: {str(e)}")
+            logger.error(f"❌ Agentic processing failed: {str(e)}", exc_info=True)
             
             # Fallback to simple RAG
+            logger.info("🔄 Falling back to simple RAG...")
             results = self.vector_store.advanced_search(query)
             answer = self.synthesis_agent.synthesize(query, results)
             

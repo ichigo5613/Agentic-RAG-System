@@ -34,12 +34,24 @@ class SynthesisAgent:
         """Format retrieval results into context string"""
         context_parts = []
         
-        for i, (doc, meta) in enumerate(zip(
-            results["documents"],
-            results["metadata"]
-        ), 1):
-            source = meta.get("source", "Document")
-            page = meta.get("page", "")
+        documents = results.get("documents", [])
+        metadata_list = results.get("metadata", [])
+        
+        for i, doc in enumerate(documents, 1):
+            if i-1 < len(metadata_list):
+                meta = metadata_list[i-1]
+                # Parse metadata if it's a JSON string
+                if isinstance(meta, str):
+                    try:
+                        import json
+                        meta = json.loads(meta)
+                    except:
+                        meta = {"source": "Unknown"}
+            else:
+                meta = {"source": "Unknown"}
+            
+            source = meta.get("source", "Document") if isinstance(meta, dict) else "Unknown"
+            page = meta.get("page", "") if isinstance(meta, dict) else ""
             page_info = f" (page {page})" if page else ""
             
             context_parts.append(
@@ -48,6 +60,31 @@ class SynthesisAgent:
             )
         
         return "\n".join(context_parts)
+
+    def _add_citations(self, answer: str, results: Dict[str, Any]) -> str:
+        """Add formal citations to answer"""
+        metadata_list = results.get("metadata", [])
+        if not metadata_list:
+            return answer
+        
+        # Add citation references
+        citations_section = "\n\n**References:**\n"
+        for i, meta in enumerate(metadata_list, 1):
+            # Parse metadata if it's a JSON string
+            if isinstance(meta, str):
+                try:
+                    import json
+                    meta = json.loads(meta)
+                except:
+                    meta = {"source": "Unknown Document"}
+            
+            source = meta.get("source", "Unknown Document") if isinstance(meta, dict) else "Unknown Document"
+            page = meta.get("page", "") if isinstance(meta, dict) else ""
+            page_info = f", page {page}" if page else ""
+            
+            citations_section += f"{i}. {source}{page_info}\n"
+        
+        return answer + citations_section
     
     def _generate_answer(self, query: str, context: str) -> str:
         """Generate answer using LLM"""

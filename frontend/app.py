@@ -27,7 +27,7 @@ if 'chat_history' not in st.session_state:
 if 'uploaded_files' not in st.session_state:
     st.session_state.uploaded_files = []
 if 'agent_mode' not in st.session_state:
-    st.session_state.agent_mode = True
+    st.session_state.agent_mode = False #True for agentic mode, False for normal mode
 if 'show_thought_process' not in st.session_state:
     st.session_state.show_thought_process = True
 if 'api_status' not in st.session_state:
@@ -122,7 +122,7 @@ def check_api_status():
     
     try:
         # Test the connection
-        response = requests.get(f"{BACKEND_URL}/health", timeout=10)
+        response = requests.get(f"{BACKEND_URL}/health", timeout=100)
         
         if response.status_code == 200:
             data = response.json()
@@ -250,7 +250,7 @@ def get_system_status():
 def clear_documents():
     """Clear all documents from backend"""
     try:
-        response = requests.post(f"{BACKEND_URL}/clear", timeout=10)
+        response = requests.post(f"{BACKEND_URL}/clear", timeout=100)
         return response.status_code == 200
     except:
         return False

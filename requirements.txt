@@ -29,6 +29,7 @@ chromadb
 
 # Vector Database
 chromadb
+pymilvus
 
 # Utilities
 numpy

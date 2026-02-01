@@ -1,23 +1,3 @@
-# backend/core/milvus_store.py
-# from typing import List, Dict, Any, Optional, Tuple
-# import uuid
-# from datetime import datetime
-# import json
-# import numpy as np
-
-# from pymilvus import (
-#     connections,
-#     FieldSchema, CollectionSchema, DataType,
-#     Collection, utility
-# )
-# from langchain.vectorstores import VectorStore
-# from langchain.docstore.document import Document as LangchainDocument
-# from langchain_huggingface import HuggingFaceEmbeddings
-
-# from backend.config import config
-# from backend.models.llm_client import LLMClient
-# from backend.utils.logger import logger
-
 # backend/core/milvus_store.py - FIXED IMPORTS
 from typing import List, Dict, Any, Optional, Tuple
 import uuid
@@ -168,19 +148,45 @@ class MilvusVectorStore(VectorStore):
         # Prepare data for insertion
         ids = [str(uuid.uuid4()) for _ in range(len(texts))]
         
-        # Create data in correct format for Milvus
+        # Get schema fields to understand expected structure
+        schema_fields = self.collection.schema.fields
+        field_names = [field.name for field in schema_fields]
+        logger.info(f"📋 Milvus schema fields: {field_names}")
+        
+        # Prepare base data with common fields
         data = [
-            ids,  # id
-            embeddings,  # embedding
-            texts,  # text
-            [json.dumps(meta) for meta in metadata_list],  # metadata
-            [meta.get("source", "Unknown") for meta in metadata_list],  # source
-            [meta.get("chunk_id", i) for i, meta in enumerate(metadata_list)],  # chunk_id
-            [datetime.utcnow().isoformat() for _ in range(len(texts))]  # created_at
+            ids,  # id field
+            embeddings,  # embedding field
+            texts,  # text field
+            [json.dumps(meta) for meta in metadata_list],  # metadata field
+            [meta.get("source", "Unknown") for meta in metadata_list],  # source field
+            [meta.get("chunk_id", i) for i, meta in enumerate(metadata_list)],  # chunk_id field
+            [datetime.utcnow().isoformat() for _ in range(len(texts))]  # created_at field
         ]
+        
+        # Check if we need additional fields based on schema
+        if len(field_names) > 7:
+            logger.warning(f"⚠️ Schema expects {len(field_names)} fields, but we have 7. Adding placeholder fields.")
+            
+            # Add placeholder data for missing fields
+            for i in range(7, len(field_names)):
+                field_name = field_names[i]
+                logger.info(f"➕ Adding placeholder for field: {field_name}")
+                
+                # Add default values based on field type
+                field_type = schema_fields[i].dtype
+                if field_type in [DataType.INT8, DataType.INT16, DataType.INT32, DataType.INT64]:
+                    data.append([0] * len(texts))
+                elif field_type in [DataType.FLOAT, DataType.DOUBLE]:
+                    data.append([0.0] * len(texts))
+                elif field_type in [DataType.BOOL]:
+                    data.append([True] * len(texts))
+                else:
+                    data.append([""] * len(texts))
         
         # Insert data
         try:
+            logger.info(f"📊 Inserting {len(texts)} documents with {len(data)} fields")
             insert_result = self.collection.insert(data)
             self.collection.flush()
             
@@ -188,15 +194,23 @@ class MilvusVectorStore(VectorStore):
             return ids
         except Exception as e:
             logger.error(f"❌ Failed to insert documents into Milvus: {str(e)}")
+            
+            # Debug: Print actual schema
+            logger.error(f"📋 Schema details: {[(f.name, f.dtype) for f in schema_fields]}")
+            logger.error(f"📋 Data structure: {[type(d).__name__ for d in data]}")
+            
             # Try alternative insertion method
-            return self._insert_alternative_method(texts, embeddings, metadata_list, ids)
-    
-    def _insert_alternative_method(self, texts, embeddings, metadata_list, ids):
+            return self._insert_alternative_method(texts, embeddings, metadata_list, ids, schema_fields)
+
+    def _insert_alternative_method(self, texts, embeddings, metadata_list, ids, schema_fields):
         """Alternative insertion method if primary fails"""
         try:
+            field_names = [field.name for field in schema_fields]
+            
             # Insert one by one
             for i, (text, embedding, meta) in enumerate(zip(texts, embeddings, metadata_list)):
-                data = [
+                # Prepare single document data
+                base_data = [
                     [ids[i]],  # id
                     [embedding],  # embedding
                     [text],  # text
@@ -205,7 +219,23 @@ class MilvusVectorStore(VectorStore):
                     [meta.get("chunk_id", i)],  # chunk_id
                     [datetime.utcnow().isoformat()]  # created_at
                 ]
-                self.collection.insert(data)
+                
+                # Add placeholder fields if needed
+                if len(field_names) > 7:
+                    for j in range(7, len(field_names)):
+                        field_name = field_names[j]
+                        field_type = schema_fields[j].dtype
+                        
+                        if field_type in [DataType.INT8, DataType.INT16, DataType.INT32, DataType.INT64]:
+                            base_data.append([0])
+                        elif field_type in [DataType.FLOAT, DataType.DOUBLE]:
+                            base_data.append([0.0])
+                        elif field_type in [DataType.BOOL]:
+                            base_data.append([True])
+                        else:
+                            base_data.append([""])
+                
+                self.collection.insert(base_data)
             
             self.collection.flush()
             logger.info(f"✅ Inserted {len(texts)} documents using alternative method")
@@ -213,7 +243,7 @@ class MilvusVectorStore(VectorStore):
         except Exception as e:
             logger.error(f"❌ Alternative insertion also failed: {str(e)}")
             raise
-    
+
     def similarity_search(
         self, 
         query: str, 
@@ -365,3 +395,176 @@ class MilvusVectorStore(VectorStore):
         except Exception as e:
             logger.error(f"❌ Milvus connection test failed: {str(e)}")
             return False
+
+    def advanced_search(self, 
+                    query: str, 
+                    use_hyde: bool = True,
+                    use_multi_query: bool = True) -> Dict[str, Any]:
+        """Advanced search with multiple retrieval strategies"""
+        all_results = []
+        
+        # 1. Basic similarity search
+        basic_results = self.search(query)
+        if basic_results["documents"]:
+            all_results.append(basic_results)
+        
+        # 2. HyDE (Hypothetical Document Embeddings)
+        if use_hyde:
+            hyde_results = self._hyde_search(query)
+            if hyde_results["documents"]:
+                all_results.append(hyde_results)
+        
+        # 3. Multi-query retrieval
+        if use_multi_query and len(all_results) > 0:
+            multi_query_results = self._multi_query_search(query)
+            if multi_query_results["documents"]:
+                all_results.append(multi_query_results)
+        
+        # Combine and deduplicate results
+        combined_results = self._combine_results(all_results)
+        
+        # Rerank if enabled
+        if config.ENABLE_RERANKING and combined_results["documents"]:
+            combined_results = self._rerank_results(query, combined_results)
+        
+        logger.info(f"Advanced search retrieved {len(combined_results['documents'])} unique chunks")
+        return combined_results
+
+    def _hyde_search(self, query: str) -> Dict[str, Any]:
+        """Hypothetical Document Embeddings search"""
+        try:
+            # Generate hypothetical answer
+            hyde_prompt = f"""
+            Based on the following query, write a hypothetical answer 
+            that would be found in a relevant document:
+            
+            Query: {query}
+            
+            Hypothetical Answer:
+            """
+            
+            hypothetical_answer = self.llm_client.generate(hyde_prompt)
+            
+            # Search with hypothetical answer
+            return self.search(hypothetical_answer)
+        except Exception as e:
+            logger.warning(f"HyDE search failed: {str(e)}")
+            return {"documents": [], "similarities": [], "metadata": []}
+
+    def _multi_query_search(self, query: str) -> Dict[str, Any]:
+        """Generate multiple queries from the original query"""
+        try:
+            multi_query_prompt = f"""
+            Given the following user query, generate 3 different ways 
+            this query could be expressed for document search:
+            
+            Original Query: {query}
+            
+            Generate 3 alternative search queries (one per line):
+            1.
+            2.
+            3.
+            """
+            
+            response = self.llm_client.generate(multi_query_prompt)
+            
+            # Parse alternative queries
+            alternative_queries = [
+                line.strip()[3:] if line.strip().startswith(("1.", "2.", "3.")) 
+                else line.strip()
+                for line in response.split('\n')
+                if line.strip()
+            ]
+            
+            # Add original query
+            alternative_queries = [query] + alternative_queries[:3]
+            
+            # Search with each query and combine
+            all_documents = []
+            all_similarities = []
+            all_metadata = []
+            
+            for alt_query in alternative_queries:
+                results = self.search(alt_query)
+                all_documents.extend(results["documents"])
+                all_similarities.extend(results["similarities"])
+                all_metadata.extend(results["metadata"])
+            
+            return {
+                "documents": all_documents,
+                "similarities": all_similarities,
+                "metadata": all_metadata
+            }
+        except Exception as e:
+            logger.warning(f"Multi-query search failed: {str(e)}")
+            return {"documents": [], "similarities": [], "metadata": []}
+
+    def _combine_results(self, results_list: List[Dict]) -> Dict[str, Any]:
+        """Combine and deduplicate results from multiple searches"""
+        seen_documents = set()
+        combined_documents = []
+        combined_similarities = []
+        combined_metadata = []
+        
+        for results in results_list:
+            for doc, sim, meta in zip(
+                results["documents"], 
+                results["similarities"], 
+                results["metadata"]
+            ):
+                if doc not in seen_documents:
+                    seen_documents.add(doc)
+                    combined_documents.append(doc)
+                    combined_similarities.append(sim)
+                    combined_metadata.append(meta)
+        
+        return {
+            "documents": combined_documents,
+            "similarities": combined_similarities,
+            "metadata": combined_metadata
+        }
+
+    def _rerank_results(self, query: str, results: Dict[str, Any]) -> Dict[str, Any]:
+        """Simple reranking based on relevance"""
+        try:
+            # Simple reranking: prioritize chunks that contain query terms
+            reranked_data = []
+            
+            for doc, sim, meta in zip(
+                results["documents"], 
+                results["similarities"], 
+                results["metadata"]
+            ):
+                # Calculate relevance score
+                query_terms = query.lower().split()
+                doc_lower = doc.lower()
+                
+                # Count query term matches
+                term_matches = sum(1 for term in query_terms if term in doc_lower)
+                
+                # Combined score: similarity + term matches
+                relevance_score = sim + (term_matches * 0.1)
+                
+                reranked_data.append({
+                    "document": doc,
+                    "similarity": sim,
+                    "metadata": meta,
+                    "relevance_score": relevance_score
+                })
+            
+            # Sort by relevance score
+            reranked_data.sort(key=lambda x: x["relevance_score"], reverse=True)
+            
+            # Take top K after reranking
+            top_k = min(config.TOP_K_RERANK, len(reranked_data))
+            reranked_data = reranked_data[:top_k]
+            
+            return {
+                "documents": [item["document"] for item in reranked_data],
+                "similarities": [item["similarity"] for item in reranked_data],
+                "metadata": [item["metadata"] for item in reranked_data],
+                "relevance_scores": [item["relevance_score"] for item in reranked_data]
+            }
+        except Exception as e:
+            logger.warning(f"Reranking failed: {str(e)}")
+            return results

@@ -141,3 +141,9 @@ docker-compose.override.yml
 # ===============================
 credentials.json
 token.json
+
+
+# ===============================
+# Milvus
+# ===============================
+volumes/

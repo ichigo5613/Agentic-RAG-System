@@ -227,6 +227,9 @@ def _process_large_pdf_incrementally(filepath: str, filename: str):
 @validate_request(['query'])
 def query_documents():
     """Query documents with agentic capabilities"""
+    print("🟢 DEBUG: /query endpoint called")
+    print(f"🟢 DEBUG: Request data: {request.json}")
+    
     data = request.json
     query_text = data.get('query', '').strip()
     use_agentic = data.get('use_agentic', True)
@@ -374,10 +377,10 @@ def system_status():
             },
             "storage": {
                 "vector_store": {
-                    "type": "ChromaDB",
+                    "type": "Milvus",
                     "status": "connected" if status["vector_store_connected"] else "disconnected",
                     "documents": status["documents_count"],
-                    "collection": config.COLLECTION_NAME
+                    "collection": config.MILVUS_COLLECTION_NAME
                 },
                 "cache": {
                     "size": status["cache_size"],
