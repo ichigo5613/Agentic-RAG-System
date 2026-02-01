@@ -179,6 +179,53 @@ class AdvancedDocumentProcessor:
         logger.info(f"Created {len(chunks)} chunks from {filename}")
         return chunks, metadata_list
     
+    def process_large_document_optimized(self, filepath: str, filename: str, max_pages: int = 50) -> Tuple[List[str], List[Dict]]:
+        """Optimized processing for large documents"""
+        try:
+            from PyPDF2 import PdfReader
+            from langchain_core.documents import Document
+            
+            reader = PdfReader(filepath)
+            total_pages = len(reader.pages)
+            
+            # Limit pages for large documents
+            if total_pages > max_pages:
+                logger.warning(f"Large PDF ({total_pages} pages), processing first {max_pages} pages only")
+                pages_to_process = max_pages
+            else:
+                pages_to_process = total_pages
+            
+            documents = []
+            for page_num in range(pages_to_process):
+                try:
+                    page = reader.pages[page_num]
+                    text = page.extract_text()
+                    
+                    if text and len(text.strip()) > 50:
+                        doc = Document(
+                            page_content=text,
+                            metadata={
+                                "source": filename,
+                                "page": page_num + 1,
+                                "total_pages": total_pages
+                            }
+                        )
+                        documents.append(doc)
+                        
+                except Exception as e:
+                    logger.warning(f"Error processing page {page_num + 1}: {str(e)}")
+                    continue
+            
+            # Apply smart chunking
+            chunks, metadata = self.smart_chunking(documents, filename)
+            
+            logger.info(f"Optimized processing: {len(chunks)} chunks from {pages_to_process}/{total_pages} pages")
+            return chunks, metadata
+            
+        except Exception as e:
+            logger.error(f"Optimized processing failed: {str(e)}")
+            raise
+
     def _contains_table(self, text: str) -> bool:
         """Check if text contains table-like structure"""
         table_indicators = ['|', '+---', '┌', '└', '├', '┼']

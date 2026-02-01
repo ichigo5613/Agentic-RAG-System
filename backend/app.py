@@ -140,19 +140,27 @@ def upload_document():
         filepath = os.path.join(config.UPLOAD_FOLDER, filename)
         file.save(filepath)
         
-        logger.info(f"Processing uploaded file: {filename}")
+        logger.info(f"📄 Processing uploaded file: {filename}")
         
-        # FOR LARGE PDFS: Use incremental processing
-        if filename.lower().endswith('.pdf') and file_size > 10 * 1024 * 1024:  # >10MB
-            # Process only first 100 pages for large PDFs
-            logger.info(f"Large PDF detected, using incremental processing")
-            chunks, metadata = _process_large_pdf_incrementally(filepath, filename)
+        # Check if it's a large PDF
+        if filename.lower().endswith('.pdf') and file_size > 5 * 1024 * 1024:  # >5MB
+            logger.info("📊 Large PDF detected, using optimized processing")
+            # Use optimized processing for large PDFs
+            from backend.core.document_processor import AdvancedDocumentProcessor
+            processor = AdvancedDocumentProcessor()
+            
+            # Try to import the optimized method
+            try:
+                chunks, metadata = processor.process_large_document_optimized(filepath, filename)
+            except:
+                # Fallback to regular processing
+                chunks, metadata = doc_processor.process_document(filepath, filename)
         else:
-            # Normal processing
+            # Normal processing for smaller files
             chunks, metadata = doc_processor.process_document(filepath, filename)
         
-        # Add to vector store
-        chunk_ids = rag_engine.vector_store.add_documents(chunks, metadata)
+        # Add to vector store using LangChain compatible method
+        chunk_ids = rag_engine.vector_store.add_texts(chunks, metadata)
         
         # Calculate metrics
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
@@ -162,14 +170,14 @@ def upload_document():
             "filename": filename,
             "file_size_mb": round(file_size_mb, 2),
             "chunks_processed": len(chunks),
-            "chunk_ids": chunk_ids[:5],  # Return first 5 IDs
+            "chunk_ids": chunk_ids[:5],
             "message": f"Successfully processed {filename} into {len(chunks)} chunks"
         })
         
     except Exception as e:
-        logger.error(f"Document upload failed: {str(e)}")
+        logger.error(f"❌ Document upload failed: {str(e)}")
         
-        # Clean up uploaded file if it exists
+        # Clean up uploaded file
         if 'filepath' in locals() and os.path.exists(filepath):
             os.remove(filepath)
         

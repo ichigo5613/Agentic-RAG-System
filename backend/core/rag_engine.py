@@ -6,14 +6,15 @@ from functools import lru_cache
 from backend.config import config
 from backend.utils.logger import logger, log_query_processing
 from backend.agents.orchestrator import AgentOrchestrator
-from backend.core.vector_store import EnhancedVectorStore
+# from backend.core.vector_store import EnhancedVectorStore
+from backend.core.milvus_store import MilvusVectorStore
 from backend.models.llm_client import LLMClient
 
 class RAGEngine:
     def __init__(self):
         # Initialize components
         self.llm_client = LLMClient()
-        self.vector_store = EnhancedVectorStore()
+        self.vector_store = MilvusVectorStore()
         
         # Initialize agent orchestrator
         self.agent_orchestrator = AgentOrchestrator(
